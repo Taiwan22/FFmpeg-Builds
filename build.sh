@@ -24,6 +24,18 @@ FFMPEG_REPO="${FFMPEG_REPO_OVERRIDE:-$FFMPEG_REPO}"
 GIT_BRANCH="${GIT_BRANCH:-master}"
 GIT_BRANCH="${GIT_BRANCH_OVERRIDE:-$GIT_BRANCH}"
 
+DOCKER_ENV_ARGS=()
+if [[ -v USE_ONLY_VARIANT_CONFIGURE ]]; then
+    DOCKER_ENV_ARGS+=(
+        -e "FF_CONFIGURE=${FF_CONFIGURE:-}"
+        -e "FF_CFLAGS=${FF_CFLAGS:-}"
+        -e "FF_CXXFLAGS=${FF_CXXFLAGS:-}"
+        -e "FF_LIBS=${FF_LIBS:-}"
+        -e "FF_LDFLAGS=${FF_LDFLAGS:-}"
+        -e "FF_LDEXEFLAGS=${FF_LDEXEFLAGS:-}"
+    )
+fi
+
 BUILD_SCRIPT="$(mktemp)"
 trap "rm -f -- '$BUILD_SCRIPT'" EXIT
 
@@ -46,7 +58,7 @@ EOF
 
 [[ -t 1 ]] && TTY_ARG="-t" || TTY_ARG=""
 
-docker run --rm -i $TTY_ARG "${UIDARGS[@]}" -v "$PWD/ffbuild":/ffbuild -v "$BUILD_SCRIPT":/build.sh "$IMAGE" bash /build.sh
+docker run --rm -i $TTY_ARG "${UIDARGS[@]}" "${DOCKER_ENV_ARGS[@]}" -v "$PWD/ffbuild":/ffbuild -v "$BUILD_SCRIPT":/build.sh "$IMAGE" bash /build.sh
 
 if [[ -n "$FFBUILD_OUTPUT_DIR" ]]; then
     mkdir -p "$FFBUILD_OUTPUT_DIR"
