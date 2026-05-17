@@ -24,6 +24,20 @@ FFMPEG_REPO="${FFMPEG_REPO_OVERRIDE:-$FFMPEG_REPO}"
 GIT_BRANCH="${GIT_BRANCH:-master}"
 GIT_BRANCH="${GIT_BRANCH_OVERRIDE:-$GIT_BRANCH}"
 
+DOCKER_ENV_ARGS=()
+if [[ -v USE_ONLY_VARIANT_CONFIGURE ]]; then
+    DOCKER_ENV_ARGS+=(
+        -e "FF_CONFIGURE=${FF_CONFIGURE:-}"
+        -e "FF_CFLAGS=${FF_CFLAGS:-}"
+        -e "FF_CXXFLAGS=${FF_CXXFLAGS:-}"
+        -e "FF_LIBS=${FF_LIBS:-}"
+        -e "FF_LDFLAGS=${FF_LDFLAGS:-}"
+        -e "FF_LDEXEFLAGS=${FF_LDEXEFLAGS:-}"
+    )
+fi
+[[ -v LIBRIST_REPO ]]   && DOCKER_ENV_ARGS+=(-e "LIBRIST_REPO=$LIBRIST_REPO")
+[[ -v LIBRIST_COMMIT ]] && DOCKER_ENV_ARGS+=(-e "LIBRIST_COMMIT=$LIBRIST_COMMIT")
+
 BUILD_SCRIPT="$(mktemp)"
 trap "rm -f -- '$BUILD_SCRIPT'" EXIT
 
@@ -31,6 +45,28 @@ cat <<EOF >"$BUILD_SCRIPT"
     set -xe
     cd /ffbuild
     rm -rf ffmpeg prefix
+
+    if [[ -n "\$LIBRIST_REPO" ]]; then
+        rm -rf librist
+        git clone --filter=blob:none "\$LIBRIST_REPO" librist
+        cd librist
+        git checkout "\$LIBRIST_COMMIT"
+        mkdir build && cd build
+        meson setup \\
+            --prefix="\$FFBUILD_PREFIX" \\
+            --buildtype=release \\
+            --default-library=static \\
+            -Duse_mbedtls=true \\
+            -Dbuiltin_mbedtls=false \\
+            -Dbuilt_tools=false \\
+            -Dtest=false \\
+            --cross-file=/cross.meson \\
+            ..
+        ninja -j\$(nproc)
+        ninja install
+        echo 'Requires: mbedcrypto' >> "\$FFBUILD_PREFIX"/lib/pkgconfig/librist.pc
+        cd /ffbuild
+    fi
 
     git clone --filter=blob:none --branch='$GIT_BRANCH' '$FFMPEG_REPO' ffmpeg
     cd ffmpeg
@@ -46,7 +82,7 @@ EOF
 
 [[ -t 1 ]] && TTY_ARG="-t" || TTY_ARG=""
 
-docker run --rm -i $TTY_ARG "${UIDARGS[@]}" -v "$PWD/ffbuild":/ffbuild -v "$BUILD_SCRIPT":/build.sh "$IMAGE" bash /build.sh
+docker run --rm -i $TTY_ARG "${UIDARGS[@]}" "${DOCKER_ENV_ARGS[@]}" -v "$PWD/ffbuild":/ffbuild -v "$BUILD_SCRIPT":/build.sh "$IMAGE" bash /build.sh
 
 if [[ -n "$FFBUILD_OUTPUT_DIR" ]]; then
     mkdir -p "$FFBUILD_OUTPUT_DIR"
